@@ -1,9 +1,11 @@
 package main
 
 import (
+	"log"
+
 	"featherweight/internal/config"
 	deliveryhttp "featherweight/internal/delivery/http"
-	"log"
+	"featherweight/internal/repository/memory"
 )
 
 func main() {
@@ -12,6 +14,9 @@ func main() {
 	cfg := config.Load()
 
 	log.Printf("starting server on %s", cfg.ServerAddress)
+
+	jobRepository := memory.NewJobRepository()
+	log.Printf("Job repository initialized: %T", jobRepository)
 
 	//initialize gin router
 
