@@ -1,9 +1,10 @@
 package domain
 
+// Output holds the result metadata for processed media.
 type Output struct {
-	Format string `json:"format"`
-	path   string `json:"path"`
-	size   int64  `json:"size"`
-	Width  int    `json:"width,omitempty"`
-	Height int    `json:"height,omitempty"`
+	Format string
+	Path   string
+	Size   int64
+	Width  int
+	Height int
 }
