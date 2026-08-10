@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,58 +18,122 @@ import (
 	"featherweight/internal/worker"
 )
 
-type mediaJobProcessor struct {
-	mediaUseCase *usecase.MediaUseCase
-}
-
-func (m *mediaJobProcessor) ProcessJob(ctx context.Context, jobID string) error {
-	// no-op for now; worker pool only needs this method to compile
-	return nil
-}
-
 func main() {
 	// 1. Load configuration
 	cfg := config.Load()
-	log.Printf("Starting server on %s", cfg.ServerAddress)
 
-	// 2. Initialize Repositories
+	log.Printf(
+		"configuration loaded: server=%s",
+		cfg.ServerAddress,
+	)
+
+	// 2. Initialize repository
 	jobRepository := memory.NewJobRepository()
 
-	// 3. Initialize Frameworks (Processor)
+	log.Printf(
+		"job repository initialized: %T",
+		jobRepository,
+	)
+
+	// 3. Initialize image processor
 	imageProcessor := processor.NewImageProcessor(cfg)
 
-	// 4. Initialize Use Cases
-	mediaUseCase := usecase.NewMediaUseCase(cfg, jobRepository, imageProcessor)
+	// 4. Initialize use cases
+	jobUseCase := usecase.NewJobUseCase(
+		jobRepository,
+	)
 
-	// 5. Initialize Background Workers
-	workerPool := worker.NewPool(4, 20, &mediaJobProcessor{mediaUseCase: mediaUseCase})
-	cleanupService := worker.NewCleanupService(cfg, jobRepository)
+	mediaUseCase := usecase.NewMediaUseCase(
+		cfg,
+		jobRepository,
+		imageProcessor,
+	)
 
-	// --- NEW: Context for graceful shutdown ---
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// 5. Initialize background workers
+	workerPool := worker.NewPool(
+		4,
+		20,
+		mediaUseCase,
+	)
+
+	cleanupService := worker.NewCleanupService(
+		cfg,
+		jobRepository,
+	)
+
+	// 6. Create shutdown context
+	ctx, cancel := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
 	defer cancel()
 
-	// Start the background processes
+	// 7. Start background workers
 	workerPool.Start(ctx)
 	cleanupService.Start(ctx)
 
-	// 6. Initialize Router & Server
-	router := deliveryhttp.NewRouter(cfg)
+	// 8. Initialize Gin router
+	router := deliveryhttp.NewRouter(
+		cfg,
+		imageProcessor,
+		mediaUseCase,
+		jobUseCase,
+		workerPool,
+	)
 
-	// Run the server in a goroutine so it doesn't block our shutdown listener
+	// 9. Create HTTP server
+	server := &http.Server{
+		Addr:              cfg.ServerAddress,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	// 10. Start HTTP server
+	serverError := make(chan error, 1)
+
 	go func() {
-		if err := router.Run(cfg.ServerAddress); err != nil {
-			log.Fatalf("Failed to start server: %v", err)
-		}
+		log.Printf(
+			"listening on %s",
+			cfg.ServerAddress,
+		)
+
+		serverError <- server.ListenAndServe()
 	}()
 
-	// Wait for Ctrl+C
-	<-ctx.Done()
-	log.Println("Shutting down gracefully...")
+	// 11. Wait for server failure or shutdown signal
+	select {
+	case err := <-serverError:
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf(
+				"server failed: %v",
+				err,
+			)
+		}
 
-	// Stop workers
+	case <-ctx.Done():
+		log.Println("shutdown signal received")
+	}
+
+	// 12. Gracefully shut down HTTP server
+	shutdownCtx, shutdownCancel := context.WithTimeout(
+		context.Background(),
+		10*time.Second,
+	)
+	defer shutdownCancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf(
+			"server shutdown failed: %v",
+			err,
+		)
+	}
+
+	// 13. Stop workers
 	workerPool.Stop()
 
-	time.Sleep(1 * time.Second)
-	log.Println("Goodbye!")
+	log.Println("server stopped")
 }

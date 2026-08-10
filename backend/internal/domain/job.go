@@ -25,9 +25,13 @@ type Job struct {
 	ID           string
 	OriginalName string
 	OriginalSize int64
+	OriginalPath string
 	Status       JobStatus
 	Outputs      []Output
 	Error        string
+	Width        int
+	Quality      int
+	Formats      []string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

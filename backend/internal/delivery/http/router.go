@@ -1,24 +1,56 @@
 package http
 
 import (
+	"net/http"
+
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
+
 	"featherweight/internal/config"
 	"featherweight/internal/delivery/handler"
-
-	"github.com/gin-gonic/gin"
+	"featherweight/internal/processor"
+	"featherweight/internal/usecase"
+	"featherweight/internal/worker"
 )
 
-// NewRouter initializes the Gin engine and registers all routes
-func NewRouter(cfg config.Config) *gin.Engine {
-	// Initialize Gin with default Logger and Recovery middleware
+func NewRouter(
+	cfg config.Config,
+	imageProcessor *processor.ImageProcessor,
+	mediaUseCase *usecase.MediaUseCase,
+	jobUseCase *usecase.JobUseCase,
+	workerPool *worker.Pool,
+) *gin.Engine {
+
 	router := gin.Default()
 
-	// Initialize our handlers
+	// Add CORS middleware
+	router.Use(cors.Default())
+
+	// Serve processed files
+	router.StaticFS(
+		"/downloads",
+		http.Dir(cfg.UploadDirectory),
+	)
+
+	// Initialize handlers
 	healthHandler := handler.NewHealthHandler()
 
-	// Set up the API routing group
+	uploadHandler := handler.NewUploadHandler(
+		cfg,
+		mediaUseCase,
+		workerPool,
+	)
+
+	jobHandler := handler.NewJobHandler(
+		jobUseCase,
+	)
+
+	// API routes
 	v1 := router.Group("/api/v1")
 	{
 		v1.GET("/health", healthHandler.Check)
+		v1.POST("/media/upload", uploadHandler.Upload)
+		v1.GET("/jobs/:id", jobHandler.GetByID)
 	}
 
 	return router
