@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        /* Light theme (paper) */
+        --bg-0: 247 244 236;
+        /* page background */
+        --bg-1: 255 255 255;
+        /* card surface */
+        --bg-2: 238 233 221;
+        /* recessed track / deeper surface */
+        --border-0: 224 218 204;
+        /* default border */
+        --border-1: 196 189 172;
+        /* hover border */
+        --text-0: 27 35 48;
+        /* primary text */
+        --text-1: 90 100 117;
+        /* secondary text */
+        --text-2: 130 140 154;
+        /* tertiary / dim text */
+
+        color-scheme: light;
+    }
+
+    .dark {
+        /* Dark theme (ink) */
+        --bg-0: 16 22 31;
+        --bg-1: 24 34 51;
+        --bg-2: 31 44 64;
+        --border-0: 42 54 72;
+        --border-1: 109 122 140;
+        --text-0: 243 239 230;
+        --text-1: 139 152 168;
+        --text-2: 109 122 140;
+
+        color-scheme: dark;
+    }
+
+    html {
+        transition: color-scheme 0.2s ease;
+    }
+
+    body {
+        @apply bg-ink-900 text-parchment-100 font-sans antialiased transition-colors duration-200;
+        background-image:
+            radial-gradient(ellipse 60% 50% at 15% -10%, rgba(228, 169, 59, 0.08), transparent),
+            radial-gradient(ellipse 50% 40% at 100% 10%, rgba(95, 182, 162, 0.06), transparent);
+        background-attachment: fixed;
+    }
+
+    ::selection {
+        background: rgba(228, 169, 59, 0.35);
+        color: rgb(var(--text-0));
+    }
+
+    :focus-visible {
+        outline: 2px solid #E4A93B;
+        outline-offset: 2px;
+    }
+}
+
+@layer utilities {
+    .shimmer-bg {
+        background-image: linear-gradient(110deg,
+                rgba(228, 169, 59, 0.15) 0%,
+                rgba(228, 169, 59, 0.55) 40%,
+                rgba(228, 169, 59, 0.15) 60%);
+        background-size: 200% 100%;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar {
+        height: 6px;
+        width: 6px;
+    }
+
+    .scrollbar-thin::-webkit-scrollbar-thumb {
+        background: rgb(var(--border-0));
+        border-radius: 999px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+    }
+}
