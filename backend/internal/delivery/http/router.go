@@ -1,8 +1,6 @@
 package http
 
 import (
-	"net/http"
-
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
@@ -26,14 +24,8 @@ func NewRouter(
 	// Add CORS middleware
 	router.Use(cors.Default())
 
-	// Serve processed files
-	router.StaticFS(
-		"/downloads",
-		http.Dir(cfg.UploadDirectory),
-	)
-
 	// Initialize handlers
-	healthHandler := handler.NewHealthHandler()
+	healthHandler := handler.NewHealthHandler(imageProcessor)
 
 	uploadHandler := handler.NewUploadHandler(
 		cfg,

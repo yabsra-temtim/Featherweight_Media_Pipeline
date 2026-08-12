@@ -42,9 +42,14 @@ func (p *Pool) Stop() {
 	log.Println("Worker pool stopped")
 }
 
-// Submit adds a job to the queue
-func (p *Pool) Submit(jobID string) {
-	p.queue <- jobID
+// Submit adds a job to the queue. Returns false if the queue is full (caller should return 503).
+func (p *Pool) Submit(jobID string) bool {
+	select {
+	case p.queue <- jobID:
+		return true
+	default:
+		return false
+	}
 }
 
 // worker is the actual goroutine that processes jobs

@@ -35,7 +35,7 @@ func writePNG(source image.Image, outputDirectory string) (domain.Output, error)
 	bounds := source.Bounds()
 	return domain.Output{
 		Format: "png",
-		Path:   "/downloads/" + filepath.Base(outputDirectory) + "/optimized.png",
+		Path:   outputPath,
 		Size:   size,
 		Width:  bounds.Dx(),
 		Height: bounds.Dy(),

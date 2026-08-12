@@ -38,7 +38,7 @@ func writeJPEG(source image.Image, outputDirectory string, quality int) (domain.
 	bounds := source.Bounds()
 	return domain.Output{
 		Format: "jpeg",
-		Path:   "/downloads/" + filepath.Base(outputDirectory) + "/optimized.jpg",
+		Path:   outputPath,
 		Size:   size,
 		Width:  bounds.Dx(),
 		Height: bounds.Dy(),

@@ -3,29 +3,34 @@ package worker
 import (
 	"context"
 	"log"
-	"os"
 	"time"
 
 	"featherweight/internal/config"
 	"featherweight/internal/domain"
 )
 
+// CloudinaryDeleter is the minimal interface the cleanup service needs.
+type CloudinaryDeleter interface {
+	Delete(ctx context.Context, publicID string) error
+}
+
 type CleanupService struct {
 	config     config.Config
 	repository domain.JobRepository
+	cloud      CloudinaryDeleter
 }
 
-func NewCleanupService(cfg config.Config, repo domain.JobRepository) *CleanupService {
+func NewCleanupService(cfg config.Config, repo domain.JobRepository, cloud CloudinaryDeleter) *CleanupService {
 	return &CleanupService{
 		config:     cfg,
 		repository: repo,
+		cloud:      cloud,
 	}
 }
 
 func (s *CleanupService) Start(ctx context.Context) {
 	go func() {
-		// Run every 10 minutes by default
-		ticker := time.NewTicker(10 * time.Minute)
+		ticker := time.NewTicker(s.config.CleanupInterval)
 		defer ticker.Stop()
 
 		for {
@@ -41,8 +46,7 @@ func (s *CleanupService) Start(ctx context.Context) {
 }
 
 func (s *CleanupService) cleanup(ctx context.Context) {
-	// Jobs older than 1 hour will be deleted
-	before := time.Now().Add(-1 * time.Hour)
+	before := time.Now().Add(-s.config.FileRetention)
 
 	expiredJobs, err := s.repository.ListExpired(ctx, before)
 	if err != nil {
@@ -51,14 +55,17 @@ func (s *CleanupService) cleanup(ctx context.Context) {
 	}
 
 	for _, job := range expiredJobs {
-		// 1. Delete processed outputs
+		// 1. Delete each output from Cloudinary using its public_id.
 		for _, output := range job.Outputs {
-			if err := os.Remove(output.Path); err != nil {
-				log.Printf("[Cleanup] Failed to delete output %s: %v", output.Path, err)
+			if output.PublicID == "" {
+				continue
+			}
+			if err := s.cloud.Delete(ctx, output.PublicID); err != nil {
+				log.Printf("[Cleanup] Failed to delete Cloudinary asset %s: %v", output.PublicID, err)
 			}
 		}
 
-		// 3. Remove from database
+		// 2. Remove from database.
 		if err := s.repository.Delete(ctx, job.ID); err != nil {
 			log.Printf("[Cleanup] Failed to delete job %s from repo: %v", job.ID, err)
 		} else {
