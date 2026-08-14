@@ -49,7 +49,12 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 	// 4. Parse formats (frontend sends multiple separate fields, e.g. formats=jpeg&formats=webp)
 	formats := c.PostFormArray("formats")
 	if len(formats) == 0 {
-		formats = []string{"jpeg"}
+		formats = []string{
+			"jpeg",
+			"webp",
+			"avif",
+			"png",
+		}
 	}
 
 	// 5. Create the Job
