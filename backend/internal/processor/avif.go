@@ -3,11 +3,11 @@ package processor
 import (
 	"context"
 	"fmt"
-	"image"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"featherweight/internal/config"
@@ -63,18 +63,20 @@ func writeAVIF(
 		return domain.Output{}, fmt.Errorf("read AVIF size: %w", err)
 	}
 
-	var outWidth, outHeight int
-	if file, err := os.Open(outputPath); err == nil {
-		if img, _, err := image.DecodeConfig(file); err == nil {
-			outWidth = img.Width
-			outHeight = img.Height
-		}
-		file.Close()
+	outWidth, outHeight, err := getMediaDimensions(
+		ctx,
+		cfg,
+		outputPath,
+	)
+	if err != nil {
+		return domain.Output{}, fmt.Errorf(
+			"read AVIF dimensions: %w",
+			err,
+		)
 	}
-
 	return domain.Output{
 		Format: "avif",
-		Path:   "/downloads/" + filepath.Base(outputDirectory) + "/optimized.avif",
+		Path:   outputPath,
 		Size:   size,
 		Width:  outWidth,
 		Height: outHeight,
@@ -111,4 +113,41 @@ func qualityToCRF(quality int) int {
 	}
 	// Maps quality (1-100) down to CRF scale (63-0)
 	return 63 - ((quality - 1) * 63 / 99)
+}
+
+func getMediaDimensions(
+	ctx context.Context,
+	cfg config.Config,
+	path string,
+) (int, int, error) {
+	output, err := runCommand(
+		ctx,
+		cfg.CommandTimeout,
+		"ffprobe",
+		"-v", "error",
+		"-select_streams", "v:0",
+		"-show_entries", "stream=width,height",
+		"-of", "csv=s=x:p=0",
+		path,
+	)
+	if err != nil {
+		return 0, 0, fmt.Errorf("probe media dimensions: %w", err)
+	}
+
+	parts := strings.Split(strings.TrimSpace(string(output)), "x")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid dimensions returned by ffprobe: %q", output)
+	}
+
+	width, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse width: %w", err)
+	}
+
+	height, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse height: %w", err)
+	}
+
+	return width, height, nil
 }

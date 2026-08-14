@@ -2,72 +2,176 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
+
 	"featherweight/internal/config"
 	deliveryhttp "featherweight/internal/delivery/http"
+	"featherweight/internal/domain"
+	infracloudinary "featherweight/internal/infrastructure/cloudinary"
+	infrapostgres "featherweight/internal/infrastructure/postgres"
+	repopostgres "featherweight/internal/infrastructure/postgres"
 	"featherweight/internal/processor"
-	"featherweight/internal/repository/memory"
 	"featherweight/internal/usecase"
 	"featherweight/internal/worker"
 )
 
-type mediaJobProcessor struct {
-	mediaUseCase *usecase.MediaUseCase
-}
-
-func (m *mediaJobProcessor) ProcessJob(ctx context.Context, jobID string) error {
-	// no-op for now; worker pool only needs this method to compile
-	return nil
-}
-
 func main() {
+	// 0. Load .env file
+	if err := godotenv.Load(); err != nil {
+		if err := godotenv.Load("../../.env"); err != nil {
+			log.Println("No .env file found, reading environment variables directly")
+		}
+	}
+
 	// 1. Load configuration
 	cfg := config.Load()
-	log.Printf("Starting server on %s", cfg.ServerAddress)
 
-	// 2. Initialize Repositories
-	jobRepository := memory.NewJobRepository()
+	log.Printf(
+		"starting server on %s (store: %s)",
+		cfg.ServerAddress,
+		cfg.JobStore,
+	)
 
-	// 3. Initialize Frameworks (Processor)
-	imageProcessor := processor.NewImageProcessor(cfg)
-
-	// 4. Initialize Use Cases
-	mediaUseCase := usecase.NewMediaUseCase(cfg, jobRepository, imageProcessor)
-
-	// 5. Initialize Background Workers
-	workerPool := worker.NewPool(4, 20, &mediaJobProcessor{mediaUseCase: mediaUseCase})
-	cleanupService := worker.NewCleanupService(cfg, jobRepository)
-
-	// --- NEW: Context for graceful shutdown ---
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// 2. Create shutdown context
+	ctx, cancel := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
 	defer cancel()
 
-	// Start the background processes
+	// 3. Initialize PostgreSQL
+	var dbPool *pgxpool.Pool
+
+	var err error
+	dbPool, err = infrapostgres.Connect(ctx, cfg)
+	if err != nil {
+		log.Fatalf("failed to connect to Postgres: %v", err)
+	}
+	defer dbPool.Close()
+
+	log.Println("PostgreSQL connection established")
+
+	// 4. Run database migrations
+	if err := infrapostgres.Migrate(ctx, dbPool); err != nil {
+		log.Fatalf("failed to run migrations: %v", err)
+	}
+
+	log.Println("database migrations completed")
+
+	// 5. Initialize PostgreSQL repository
+	var jobRepository domain.JobRepository
+
+	jobRepository = repopostgres.NewJobRepository(dbPool)
+
+	log.Printf(
+		"job repository initialized: %T",
+		jobRepository,
+	)
+
+	// 6. Initialize image processor
+	imageProcessor := processor.NewImageProcessor(cfg)
+
+	// 7. Initialize Cloudinary uploader
+	cloudUploader, err := infracloudinary.NewUploader(cfg)
+	if err != nil {
+		log.Fatalf("failed to init Cloudinary: %v", err)
+	}
+
+	log.Println("Cloudinary uploader initialized")
+
+	// 8. Initialize use cases
+	jobUseCase := usecase.NewJobUseCase(
+		jobRepository,
+	)
+
+	mediaUseCase := usecase.NewMediaUseCase(
+		cfg,
+		jobRepository,
+		imageProcessor,
+		cloudUploader,
+	)
+
+	// 9. Initialize background workers
+	workerPool := worker.NewPool(
+		cfg.WorkerCount,
+		20,
+		mediaUseCase,
+	)
+
+	cleanupService := worker.NewCleanupService(
+		cfg,
+		jobRepository,
+		cloudUploader,
+	)
+
+	// 10. Start background workers
 	workerPool.Start(ctx)
 	cleanupService.Start(ctx)
 
-	// 6. Initialize Router & Server
-	router := deliveryhttp.NewRouter(cfg)
+	// 11. Initialize HTTP router
+	router := deliveryhttp.NewRouter(
+		cfg,
+		imageProcessor,
+		mediaUseCase,
+		jobUseCase,
+		workerPool,
+	)
 
-	// Run the server in a goroutine so it doesn't block our shutdown listener
+	// 12. Create HTTP server
+	server := &http.Server{
+		Addr:              cfg.ServerAddress,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	// 13. Start HTTP server
+	serverError := make(chan error, 1)
+
 	go func() {
-		if err := router.Run(cfg.ServerAddress); err != nil {
-			log.Fatalf("Failed to start server: %v", err)
+		log.Printf("listening on %s", cfg.ServerAddress)
+
+		if err := server.ListenAndServe(); err != nil {
+			serverError <- err
 		}
 	}()
 
-	// Wait for Ctrl+C
-	<-ctx.Done()
-	log.Println("Shutting down gracefully...")
+	// 14. Wait for server failure or shutdown signal
+	select {
+	case err := <-serverError:
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server failed: %v", err)
+		}
 
-	// Stop workers
+	case <-ctx.Done():
+		log.Println("shutdown signal received")
+	}
+
+	// 15. Gracefully shut down HTTP server
+	shutdownCtx, shutdownCancel := context.WithTimeout(
+		context.Background(),
+		10*time.Second,
+	)
+	defer shutdownCancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("server shutdown failed: %v", err)
+	}
+
+	// 16. Stop background workers
 	workerPool.Stop()
 
-	time.Sleep(1 * time.Second)
-	log.Println("Goodbye!")
+	log.Println("server stopped")
 }
