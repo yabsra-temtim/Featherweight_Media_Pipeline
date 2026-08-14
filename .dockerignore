@@ -1,0 +1,11 @@
+.git
+.gitignore
+
+backend/.env
+
+backend/uploads/*
+!backend/uploads/originals/.gitkeep
+!backend/uploads/processed/.gitkeep
+
+*.log
+tmp/

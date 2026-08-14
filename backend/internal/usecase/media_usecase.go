@@ -226,8 +226,11 @@ func (u *MediaUseCase) ProcessJob(
 	cloudOutputs := make([]domain.Output, 0, len(localOutputs))
 
 	for _, localOut := range localOutputs {
-		publicID := fmt.Sprintf("%s/%s_optimized_%s", u.config.CloudinaryFolder, jobID, localOut.Format)
-
+		publicID := fmt.Sprintf(
+			"%s_optimized_%s",
+			jobID,
+			localOut.Format,
+		)
 		secureURL, fullPublicID, uploadErr := u.cloud.Upload(ctx, localOut.Path, publicID)
 		if uploadErr != nil {
 			// Non-fatal: log and continue with remaining formats.
