@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -21,6 +22,13 @@ var (
 	ErrInvalidWidth = errors.New("width must be between 1 and the configured maximum")
 )
 
+// CloudinaryStore is the interface for cloud storage operations.
+// Implemented by infrastructure/cloudinary.Uploader.
+type CloudinaryStore interface {
+	Upload(ctx context.Context, localPath, publicID string) (secureURL string, fullPublicID string, err error)
+	Delete(ctx context.Context, publicID string) error
+}
+
 // UploadInput represents the data expected from the HTTP handler.
 type UploadInput struct {
 	FileName string
@@ -36,17 +44,20 @@ type MediaUseCase struct {
 	config     config.Config
 	repository domain.JobRepository
 	processor  *processor.ImageProcessor
+	cloud      CloudinaryStore
 }
 
 func NewMediaUseCase(
 	cfg config.Config,
 	repo domain.JobRepository,
 	proc *processor.ImageProcessor,
+	cloud CloudinaryStore,
 ) *MediaUseCase {
 	return &MediaUseCase{
 		config:     cfg,
 		repository: repo,
 		processor:  proc,
+		cloud:      cloud,
 	}
 }
 
@@ -168,9 +179,9 @@ func (u *MediaUseCase) ProcessJob(
 		)
 	}
 
-	// Output directory for this job.
+	// Output directory for this job (temporary — deleted after Cloudinary upload).
 	outputDirectory := filepath.Join(
-		u.config.UploadDirectory,
+		u.config.OutputDirectory,
 		jobID,
 	)
 
@@ -185,13 +196,13 @@ func (u *MediaUseCase) ProcessJob(
 		)
 	}
 
-	// Process the image.
-	outputs, _, err := u.processor.Process(
+	// Process the image locally first.
+	localOutputs, _, err := u.processor.Process(
 		ctx,
 		processor.ProcessInput{
 			JobID:           job.ID,
 			OriginalPath:    job.OriginalPath,
-			OutputDirectory: u.config.UploadDirectory,
+			OutputDirectory: u.config.OutputDirectory,
 			Width:           job.Width,
 			Quality:         job.Quality,
 			Formats:         job.Formats,
@@ -199,6 +210,7 @@ func (u *MediaUseCase) ProcessJob(
 	)
 
 	if err != nil {
+		os.RemoveAll(outputDirectory)
 		return u.failJob(
 			ctx,
 			job,
@@ -210,8 +222,44 @@ func (u *MediaUseCase) ProcessJob(
 		)
 	}
 
+	// Upload each processed file to Cloudinary, then delete the local copy.
+	cloudOutputs := make([]domain.Output, 0, len(localOutputs))
+
+	for _, localOut := range localOutputs {
+		publicID := fmt.Sprintf("%s/%s_optimized_%s", u.config.CloudinaryFolder, jobID, localOut.Format)
+
+		secureURL, fullPublicID, uploadErr := u.cloud.Upload(ctx, localOut.Path, publicID)
+		if uploadErr != nil {
+			// Non-fatal: log and continue with remaining formats.
+			log.Printf("[ProcessJob] Cloudinary upload failed for %s (%s): %v", jobID, localOut.Format, uploadErr)
+			continue
+		}
+
+		// Remove local file immediately after a successful upload.
+		if err := os.Remove(localOut.Path); err != nil && !os.IsNotExist(err) {
+			log.Printf("[ProcessJob] Failed to remove local file %s: %v", localOut.Path, err)
+		}
+
+		cloudOutputs = append(cloudOutputs, domain.Output{
+			Format:   localOut.Format,
+			Path:     secureURL,
+			PublicID: fullPublicID,
+			Size:     localOut.Size,
+			Width:    localOut.Width,
+			Height:   localOut.Height,
+		})
+	}
+
+	// Clean up the (now empty) output directory and original upload.
+	os.RemoveAll(outputDirectory)
+	os.RemoveAll(filepath.Join(u.config.UploadDirectory, jobID))
+
+	if len(cloudOutputs) == 0 {
+		return u.failJob(ctx, job, fmt.Errorf("all Cloudinary uploads failed for job %s", jobID))
+	}
+
 	// Save processing results.
-	job.Outputs = outputs
+	job.Outputs = cloudOutputs
 	job.Status = domain.StatusCompleted
 	job.Error = ""
 	job.UpdatedAt = time.Now()

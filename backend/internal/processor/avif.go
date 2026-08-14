@@ -74,7 +74,7 @@ func writeAVIF(
 
 	return domain.Output{
 		Format: "avif",
-		Path:   "/downloads/" + filepath.Base(outputDirectory) + "/optimized.avif",
+		Path:   outputPath,
 		Size:   size,
 		Width:  outWidth,
 		Height: outHeight,

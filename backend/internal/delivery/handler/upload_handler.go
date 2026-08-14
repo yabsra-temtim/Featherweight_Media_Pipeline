@@ -3,7 +3,6 @@ package handler
 import (
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -47,9 +46,11 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 	// 3. Parse quality (default 80)
 	quality, _ := strconv.Atoi(c.DefaultPostForm("quality", "80"))
 
-	// 4. Parse formats (e.g. "jpeg,webp")
-	formatsStr := c.DefaultPostForm("formats", "jpeg")
-	formats := strings.Split(formatsStr, ",")
+	// 4. Parse formats (frontend sends multiple separate fields, e.g. formats=jpeg&formats=webp)
+	formats := c.PostFormArray("formats")
+	if len(formats) == 0 {
+		formats = []string{"jpeg"}
+	}
 
 	// 5. Create the Job
 	input := usecase.UploadInput{
@@ -67,8 +68,11 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// 6. Submit the Job to the background worker pool!
-	h.workerPool.Submit(job.ID)
+	// 6. Submit the Job to the background worker pool
+	if !h.workerPool.Submit(job.ID) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Server is busy, please try again shortly"})
+		return
+	}
 
 	// 7. Return the pending job details to the user
 	c.JSON(http.StatusAccepted, job)

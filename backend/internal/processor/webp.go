@@ -55,7 +55,7 @@ func writeWebP(
 
 	return domain.Output{
 		Format: "webp",
-		Path:   "/downloads/" + filepath.Base(outputDirectory) + "/optimized.webp",
+		Path:   outputPath,
 		Size:   size,
 		Width:  outWidth,
 		Height: outHeight,
