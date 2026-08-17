@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"featherweight/internal/config"
+	"featherweight/internal/delivery/dto"
 	"featherweight/internal/usecase"
 	"featherweight/internal/worker"
 )
@@ -29,13 +30,13 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 	// 1. Get the uploaded file
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "A file is required"})
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("A file is required"))
 		return
 	}
 
 	file, err := fileHeader.Open()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read file"})
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("Failed to read file"))
 		return
 	}
 	defer file.Close()
@@ -69,16 +70,16 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 
 	job, err := h.mediaUseCase.CreateJob(c.Request.Context(), input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse(err.Error()))
 		return
 	}
 
 	// 6. Submit the Job to the background worker pool
 	if !h.workerPool.Submit(job.ID) {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Server is busy, please try again shortly"})
+		c.JSON(http.StatusServiceUnavailable, dto.NewErrorResponse("Server is busy, please try again shortly"))
 		return
 	}
 
 	// 7. Return the pending job details to the user
-	c.JSON(http.StatusAccepted, job)
+	c.JSON(http.StatusAccepted, dto.FromJob(job))
 }

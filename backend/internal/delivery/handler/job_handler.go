@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"featherweight/internal/delivery/dto"
 	"featherweight/internal/domain"
 	"featherweight/internal/usecase"
 )
@@ -26,12 +27,12 @@ func (h *JobHandler) GetByID(c *gin.Context) {
 	job, err := h.jobUseCase.GetJob(c.Request.Context(), jobID)
 	if err != nil {
 		if errors.Is(err, domain.ErrJobNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
+			c.JSON(http.StatusNotFound, dto.NewErrorResponse("Job not found"))
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve job"})
+			c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("Failed to retrieve job"))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, job)
+	c.JSON(http.StatusOK, dto.FromJob(job))
 }

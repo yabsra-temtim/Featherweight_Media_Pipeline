@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getJob } from '../api/client'
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed'])
-const POLL_INTERVAL_MS = 900
+const POLL_INTERVAL_MS = 10000
 
 /**
  * Polls GET /api/v1/jobs/:id while a job is pending/processing, stopping
