@@ -37,10 +37,9 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		ServerAddress: getEnv(
-			"SERVER_ADDRESS",
-			":8080",
-		),
+		// Render (and most cloud platforms) inject PORT, not SERVER_ADDRESS.
+		// Check PORT first so the server binds on the correct port in production.
+		ServerAddress: buildServerAddress(),
 
 		UploadDirectory: getEnv(
 			"UPLOAD_DIRECTORY",
@@ -137,6 +136,15 @@ func buildDatabaseURL() string {
 		port + "/" +
 		name +
 		"?sslmode=" + sslMode
+}
+
+// buildServerAddress resolves the address the HTTP server should listen on.
+// Priority: PORT (injected by Render) → SERVER_ADDRESS → :8080 (local dev).
+func buildServerAddress() string {
+	if port := os.Getenv("PORT"); port != "" {
+		return ":" + port
+	}
+	return getEnv("SERVER_ADDRESS", ":8080")
 }
 
 func getEnv(
