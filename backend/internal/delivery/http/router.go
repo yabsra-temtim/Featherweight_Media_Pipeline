@@ -52,6 +52,18 @@ func NewRouter(
 		jobUseCase,
 	)
 
+	// ── Root ──────────────────────────────────────────────────────────────────
+	// Returns 200 so Render's health check on / passes and visitors get
+	// a clear message instead of a blank 404.
+	router.GET("/", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"service": "Featherweight Media Pipeline API",
+			"version": "v1",
+			"status":  "ok",
+			"docs":    "/api/v1/health",
+		})
+	})
+
 	// ── API routes ────────────────────────────────────────────────────────────
 	v1 := router.Group("/api/v1")
 	{
