@@ -71,7 +71,7 @@ services:
     envVars:
       # Set this to your actual backend service URL in the Render dashboard.
       # fromService hostport doesn't include https://, so we hardcode it here.
-      - key: VITE_API_BASE_URL
+      - key: VITE_API_URL
         value: https://featherweight-media-pipeline.onrender.com
       - key: VITE_MAX_UPLOAD_MB
         value: "32"
