@@ -1,0 +1,84 @@
+services:
+  # ─── Go Backend (Web Service) ────────────────────────────────────────────────
+  - type: web
+    name: featherweight-api
+    runtime: go
+    rootDir: backend
+    buildCommand: go build -o featherweight ./cmd/api
+    startCommand: ./featherweight
+    plan: free
+
+    healthCheckPath: /api/v1/health
+
+    envVars:
+      - key: SERVER_ADDRESS
+        value: :8080
+
+      # ── CORS ───────────────────────────────────────────────────────────────
+      # Allow requests from the Render frontend static site
+      - key: CORS_ALLOWED_ORIGINS
+        fromService:
+          name: featherweight-ui
+          type: web
+          property: hostport    # resolves to https://featherweight-ui.onrender.com
+
+      # Attach a Render Postgres database and use its DATABASE_URL, or fill
+      # in the individual vars below in the Render dashboard.
+      - key: DB_HOST
+        sync: false          # set in dashboard
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_SSLMODE
+        value: require        # Render Postgres requires SSL
+
+      # ── Cloudinary ─────────────────────────────────────────────────────────
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_FOLDER
+        value: featherweight
+
+      # ── Workers / Limits ───────────────────────────────────────────────────
+      - key: WORKER_COUNT
+        value: "3"
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "32"
+      - key: FILE_RETENTION_HOURS
+        value: "1"
+      - key: CLEANUP_INTERVAL_MINUTES
+        value: "60"
+      - key: COMMAND_TIMEOUT_SECONDS
+        value: "60"
+
+  # ─── React Frontend (Static Site) ───────────────────────────────────────────
+  - type: web
+    name: featherweight-ui
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+
+    envVars:
+      # Automatically wired to the backend service URL at build time
+      - key: VITE_API_BASE_URL
+        fromService:
+          name: featherweight-api
+          type: web
+          property: hostport     # resolves to https://<service>.onrender.com
+      - key: VITE_MAX_UPLOAD_MB
+        value: "32"
+
+    routes:
+      # Redirect all paths to index.html so React Router handles them
+      - type: rewrite
+        source: /*
+        destination: /index.html
